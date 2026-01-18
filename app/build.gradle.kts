@@ -77,6 +77,22 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.9.3")
 
+    // CameraX
+    implementation("androidx.camera:camera-camera2:1.4.1")
+    implementation("androidx.camera:camera-lifecycle:1.4.1")
+    implementation("androidx.camera:camera-view:1.4.1")
+
+    // TensorFlow Lite
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
+
+    // MediaPipe Tasks Vision
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
+
+    // Accompanist Permissions
+    implementation("com.google.accompanist:accompanist-permissions:0.36.0")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

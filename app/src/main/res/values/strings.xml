@@ -24,6 +24,11 @@
 
     <!-- Camera -->
     <string name="camera_title">Camera</string>
+    <string name="camera_permission_denied">Camera permission is required</string>
+    <string name="camera_permission_rationale">Camera access is needed to recognize sign language</string>
+    <string name="clear_text">Clear</string>
+    <string name="delete_last">Delete Last</string>
+    <string name="translated_output">Translated Text:</string>
 
     <!-- Accessibility -->
     <string name="back_button_description">Go back</string>
