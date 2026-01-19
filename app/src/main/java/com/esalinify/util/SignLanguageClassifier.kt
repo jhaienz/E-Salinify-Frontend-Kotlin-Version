@@ -16,17 +16,19 @@ class SignLanguageClassifier(private val context: Context) {
     private var interpreter: Interpreter? = null
     private val lock = Any() // Synchronization lock for thread safety
 
-    // 24 letters - excluding J and Z (motion-based signs)
+    // 36 classes - 10 digits (0-9) + 26 letters (A-Z)
     private val labels = listOf(
-        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M',
-        'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y'
+        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+        'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
     )
 
     companion object {
         private const val TAG = "SignLanguageClassifier"
-        private const val MODEL_PATH = "model.tflite"
-        private const val INPUT_SIZE = 28
-        private const val NUM_CLASSES = 24
+        private const val MODEL_PATH = "hand_sign_model.tflite"
+        private const val INPUT_SIZE = 64
+        private const val NUM_CHANNELS = 3
+        private const val NUM_CLASSES = 36
     }
 
     init {
@@ -48,7 +50,7 @@ class SignLanguageClassifier(private val context: Context) {
             Log.i(TAG, "✓ TensorFlow Lite model loaded successfully")
             Log.d(TAG, "  Input shape: ${inputTensor?.shape()?.contentToString()}")
             Log.d(TAG, "  Output shape: ${outputTensor?.shape()?.contentToString()}")
-            Log.d(TAG, "  Labels: 24 letters (A-Y, excluding J and Z)")
+            Log.d(TAG, "  Labels: 36 classes (0-9 + A-Z)")
         } catch (e: Exception) {
             Log.e(TAG, "❌ CRITICAL: Error loading TensorFlow Lite model", e)
             e.printStackTrace()
@@ -68,7 +70,7 @@ class SignLanguageClassifier(private val context: Context) {
     }
 
     /**
-     * Classifies a preprocessed bitmap (28x28 grayscale)
+     * Classifies a preprocessed bitmap (64x64 RGB)
      * Returns prediction result with character and confidence
      */
     fun classify(bitmap: Bitmap): PredictionResult? = synchronized(lock) {
@@ -84,12 +86,12 @@ class SignLanguageClassifier(private val context: Context) {
                 return null
             }
 
-            // Convert bitmap to normalized float array
-            val inputArray = ImageProcessor.bitmapToNormalizedFloatArray(bitmap)
+            // Convert bitmap to normalized RGB float array
+            val inputArray = ImageProcessor.bitmapToNormalizedRgbFloatArray(bitmap)
             Log.v(TAG, "Input array size: ${inputArray.size}, first 5 values: ${inputArray.take(5)}")
 
-            // Reshape to [1, 28, 28, 1] for model input
-            val inputBuffer = ByteBuffer.allocateDirect(4 * INPUT_SIZE * INPUT_SIZE * 1)
+            // Reshape to [1, 64, 64, 3] for model input
+            val inputBuffer = ByteBuffer.allocateDirect(4 * INPUT_SIZE * INPUT_SIZE * NUM_CHANNELS)
             inputBuffer.order(ByteOrder.nativeOrder())
 
             for (value in inputArray) {
@@ -99,7 +101,7 @@ class SignLanguageClassifier(private val context: Context) {
             // CRITICAL: Rewind buffer to beginning before inference
             inputBuffer.rewind()
 
-            // Prepare output array [1, 24]
+            // Prepare output array [1, 36]
             val outputArray = Array(1) { FloatArray(NUM_CLASSES) }
 
             // Run inference (synchronized to prevent concurrent access)

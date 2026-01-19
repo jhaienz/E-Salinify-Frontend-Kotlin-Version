@@ -26,23 +26,12 @@ object ImageProcessor {
 
     /**
      * Preprocesses the bitmap for model input:
-     * 1. Convert to grayscale
-     * 2. Resize to 28x28
-     * 3. Normalize pixel values to 0-1 range
+     * 1. Resize to 64x64
+     * 2. Keep RGB channels (no grayscale conversion)
      */
     fun preprocessForModel(bitmap: Bitmap): Bitmap {
-        // Convert to grayscale
-        val grayscaleBitmap = toGrayscale(bitmap)
-
-        // Resize to 28x28 (model input size)
-        val resizedBitmap = Bitmap.createScaledBitmap(grayscaleBitmap, 28, 28, true)
-
-        // Clean up intermediate bitmap
-        if (grayscaleBitmap != bitmap) {
-            grayscaleBitmap.recycle()
-        }
-
-        return resizedBitmap
+        // Resize to 64x64 (model input size) - keep RGB
+        return Bitmap.createScaledBitmap(bitmap, 64, 64, true)
     }
 
     /**
@@ -73,7 +62,7 @@ object ImageProcessor {
 
     /**
      * Normalizes pixel values from 0-255 range to 0-1 range
-     * Returns a FloatArray suitable for TensorFlow Lite input
+     * Returns a FloatArray suitable for TensorFlow Lite input (grayscale)
      */
     fun bitmapToNormalizedFloatArray(bitmap: Bitmap): FloatArray {
         val width = bitmap.width
@@ -88,6 +77,30 @@ object ImageProcessor {
                 val gray = Color.red(pixel)
                 // Normalize to 0-1 range
                 floatArray[index++] = gray / 255.0f
+            }
+        }
+
+        return floatArray
+    }
+
+    /**
+     * Converts RGB bitmap to normalized float array for TensorFlow Lite input
+     * Returns a FloatArray with shape [height * width * 3] (RGB channels)
+     * Normalized to 0-1 range
+     */
+    fun bitmapToNormalizedRgbFloatArray(bitmap: Bitmap): FloatArray {
+        val width = bitmap.width
+        val height = bitmap.height
+        val floatArray = FloatArray(width * height * 3)
+
+        var index = 0
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val pixel = bitmap.getPixel(x, y)
+                // Extract and normalize RGB channels to 0-1 range
+                floatArray[index++] = Color.red(pixel) / 255.0f
+                floatArray[index++] = Color.green(pixel) / 255.0f
+                floatArray[index++] = Color.blue(pixel) / 255.0f
             }
         }
 
