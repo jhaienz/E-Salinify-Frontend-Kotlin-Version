@@ -31,12 +31,8 @@ class SplashViewModel @Inject constructor(
 
     private fun checkOnboardingStatus() {
         viewModelScope.launch {
-            val hasOnboarded = preferencesManager.hasOnboarded.first()
-            _navigationTarget.value = if (hasOnboarded) {
-                NavigationTarget.Home
-            } else {
-                NavigationTarget.Onboarding
-            }
+            // Always show onboarding first on every app launch
+            _navigationTarget.value = NavigationTarget.Onboarding
         }
     }
 }

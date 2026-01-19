@@ -76,7 +76,7 @@ fun OnboardingScreen(
             Image(
                 painter = painterResource(id = R.drawable.ic_onboarding),
                 contentDescription = null,
-                modifier = Modifier.size(width = 350.dp, height = 260.dp),
+                modifier = Modifier.size(width = 300.dp, height = 300.dp),
                 contentScale = ContentScale.Fit
             )
 

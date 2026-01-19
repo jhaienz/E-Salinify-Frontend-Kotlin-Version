@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -62,6 +63,48 @@ fun SignImage(
                     text = char.toString(),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SignImageWithLabel(
+    char: Char,
+    modifier: Modifier = Modifier
+) {
+    val signDrawable = SignMapper.getSignDrawable(char)
+
+    when {
+        SignMapper.isSpace(char) -> {
+            // Render space as a small separator
+            Spacer(modifier = Modifier.width(16.dp))
+        }
+        signDrawable != null -> {
+            // Render sign image only (image already contains the letter)
+            Image(
+                painter = painterResource(id = signDrawable),
+                contentDescription = stringResource(R.string.sign_image_description, char),
+                modifier = modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+                contentScale = ContentScale.Crop
+            )
+        }
+        else -> {
+            // Render unsupported character with placeholder
+            Box(
+                modifier = modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFFE0E0E0)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = char.toString(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.Gray
                 )
             }
         }

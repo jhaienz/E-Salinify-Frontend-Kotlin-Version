@@ -4,9 +4,9 @@
 
     <!-- Onboarding -->
     <string name="onboarding_title">E-Salinify</string>
-    <string name="onboarding_tagline_start">Breaking Barriers, One </string>
-    <string name="onboarding_tagline_sign">Sign</string>
-    <string name="onboarding_tagline_end"> at a Time</string>
+    <string name="onboarding_tagline_start">Breaking Barriers, One</string>
+    <string name="onboarding_tagline_sign">" Sign "</string>
+    <string name="onboarding_tagline_end">at a Time</string>
     <string name="onboarding_description">Understand and connect through sign language, enabling clearer communication without barriers.</string>
     <string name="get_started">Get Started</string>
 
