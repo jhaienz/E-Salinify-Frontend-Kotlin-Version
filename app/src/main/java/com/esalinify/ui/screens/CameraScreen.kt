@@ -116,7 +116,7 @@ private fun CameraContent(
                 onFrameAnalyzed = onFrameAnalyzed
             )
 
-            // Prediction overlay
+            // Prediction overlay - show only the detected letter
             uiState.currentPrediction?.let { prediction ->
                 Box(
                     modifier = Modifier
@@ -126,11 +126,11 @@ private fun CameraContent(
                             color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.9f),
                             shape = RoundedCornerShape(20.dp)
                         )
-                        .padding(horizontal = 20.dp, vertical = 10.dp)
+                        .padding(horizontal = 24.dp, vertical = 12.dp)
                 ) {
                     Text(
-                        text = "${prediction.predictedChar} (${(prediction.confidence * 100).toInt()}%)",
-                        style = MaterialTheme.typography.titleMedium,
+                        text = prediction.predictedChar,
+                        style = MaterialTheme.typography.headlineMedium,
                         color = MaterialTheme.colorScheme.onSecondary
                     )
                 }
@@ -164,23 +164,8 @@ private fun CameraContent(
                 .padding(16.dp),
             contentAlignment = Alignment.TopStart
         ) {
-            // Build display text: translated text + current word (with cursor)
-            val displayText = buildString {
-                append(uiState.translatedText)
-                if (uiState.currentWord.isNotEmpty()) {
-                    if (uiState.translatedText.isNotEmpty()) {
-                        append(" ")
-                    }
-                    append(uiState.currentWord)
-                    append("_") // Blinking cursor effect
-                }
-                if (isEmpty()) {
-                    append("...")
-                }
-            }
-
             Text(
-                text = displayText,
+                text = if (uiState.translatedText.isEmpty()) "..." else uiState.translatedText,
                 style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.onPrimary,
                 textAlign = TextAlign.Start

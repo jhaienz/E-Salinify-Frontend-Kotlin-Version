@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -41,6 +42,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
@@ -59,21 +61,36 @@ fun KeyboardScreen(
     val inputText by viewModel.inputText.collectAsState()
     var showTooltip by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
+    val scrollState = rememberScrollState()
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     // Auto-focus the text field when screen loads
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }
 
+    // Function to show keyboard
+    fun showKeyboard() {
+        focusRequester.requestFocus()
+        keyboardController?.show()
+    }
+
+    // Auto-scroll to bottom when text changes
+    LaunchedEffect(inputText) {
+        scrollState.animateScrollTo(scrollState.maxValue)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.White)
-            .padding(horizontal = 16.dp, vertical = 16.dp)
+            .imePadding()
     ) {
         // Header with back button and info icon
         Box(
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 16.dp)
         ) {
             // Back button
             Icon(
@@ -122,98 +139,109 @@ fun KeyboardScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Sign language output container
-        Box(
+        // Scrollable content area
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
                 .weight(1f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFFF5F5F5))
-                .padding(16.dp)
+                .verticalScroll(scrollState)
+                .padding(horizontal = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            if (inputText.isEmpty()) {
-                // Empty state placeholder
-                Text(
-                    text = "Your message in sign language will appear here",
-                    color = Color.Gray,
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.align(Alignment.Center)
-                )
-            } else {
-                // Display signs in a grid layout
-                FlowRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    maxItemsInEachRow = 5
-                ) {
-                    inputText.uppercase().forEach { char ->
-                        if (char.isLetter() || char == ' ') {
-                            SignImageWithLabel(
-                                char = char,
-                                modifier = Modifier.padding(horizontal = 4.dp)
-                            )
+            // Sign language display area
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 150.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (inputText.isEmpty()) {
+                    // Empty state placeholder
+                    Text(
+                        text = "Your message in sign language will appear here",
+                        color = Color.Gray,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center
+                    )
+                } else {
+                    // Display signs in a grid layout
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        maxItemsInEachRow = 5
+                    ) {
+                        inputText.uppercase().forEach { char ->
+                            if (char.isLetter() || char == ' ') {
+                                SignImageWithLabel(
+                                    char = char,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                            }
                         }
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // "Your Message in Sign Language" label
+            Text(
+                text = "Your Message in Sign Language",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.Black,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Display the typed text in a pill shape - clickable to show keyboard
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color(0xFFF5F5F5))
+                    .clickable { showKeyboard() }
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (inputText.isEmpty()) {
+                    Text(
+                        text = "Start typing to see your message in sign language",
+                        color = Color.Gray,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center
+                    )
+                } else {
+                    Text(
+                        text = inputText,
+                        color = Color.Black,
+                        fontSize = 16.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // "Your Message in Sign Language" label
-        Text(
-            text = "Your Message in Sign Language",
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color.Black,
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Input field with BasicTextField for keyboard input
+        // Hidden text field to capture keyboard input
         BasicTextField(
             value = inputText,
             onValueChange = { viewModel.updateInputText(it) },
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 48.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFFF5F5F5))
-                .padding(horizontal = 20.dp, vertical = 14.dp)
+                .height(1.dp)
                 .focusRequester(focusRequester),
             textStyle = TextStyle(
-                color = Color.Black,
-                fontSize = 16.sp,
-                textAlign = TextAlign.Center
+                color = Color.Transparent,
+                fontSize = 1.sp
             ),
-            cursorBrush = SolidColor(Color.Black),
+            cursorBrush = SolidColor(Color.Transparent),
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.Sentences
-            ),
-            decorationBox = { innerTextField ->
-                Box(
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (inputText.isEmpty()) {
-                        Text(
-                            text = "Start typing to see your message in sign language",
-                            color = Color.Gray,
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                    innerTextField()
-                }
-            }
+            )
         )
-
-        Spacer(modifier = Modifier.height(16.dp))
     }
 }

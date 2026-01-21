@@ -26,12 +26,18 @@ object ImageProcessor {
 
     /**
      * Preprocesses the bitmap for model input:
-     * 1. Resize to 64x64
-     * 2. Keep RGB channels (no grayscale conversion)
+     * Matches Python: roi = cv2.cvtColor(frame[y_min:y_max, x_min:x_max], cv2.COLOR_BGR2GRAY)
+     *                 roi = cv2.resize(roi, (28, 28))
+     *
+     * 1. Convert to grayscale
+     * 2. Resize to 28x28
      */
     fun preprocessForModel(bitmap: Bitmap): Bitmap {
-        // Resize to 64x64 (model input size) - keep RGB
-        return Bitmap.createScaledBitmap(bitmap, 64, 64, true)
+        // First resize to 28x28
+        val resized = Bitmap.createScaledBitmap(bitmap, 28, 28, true)
+
+        // Then convert to grayscale
+        return toGrayscale(resized)
     }
 
     /**
@@ -49,7 +55,7 @@ object ImageProcessor {
                 val green = Color.green(pixel)
                 val blue = Color.blue(pixel)
 
-                // Standard grayscale conversion formula
+                // Standard grayscale conversion formula (same as OpenCV)
                 val gray = (0.299 * red + 0.587 * green + 0.114 * blue).toInt()
                 val grayPixel = Color.rgb(gray, gray, gray)
 
@@ -63,6 +69,7 @@ object ImageProcessor {
     /**
      * Normalizes pixel values from 0-255 range to 0-1 range
      * Returns a FloatArray suitable for TensorFlow Lite input (grayscale)
+     * Matches Python: pixeldata = roi.reshape(1, 28, 28, 1) / 255.0
      */
     fun bitmapToNormalizedFloatArray(bitmap: Bitmap): FloatArray {
         val width = bitmap.width

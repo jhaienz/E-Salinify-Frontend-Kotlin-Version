@@ -31,19 +31,14 @@ class CameraViewModel @Inject constructor(
     private var classifier: SignLanguageClassifier? = null
     private var handDetector: HandDetector? = null
 
-    // Stability filter variables (matching Python implementation)
+    // Stability filter variables (matching Python implementation exactly)
     private val currentPredictionList = mutableListOf<String>()
     private var lastConfirmedLetter = ""
 
-    // Word separation tracking
-    private var lastLetterConfirmedTime = 0L
-    private var currentWord = StringBuilder()
-
     companion object {
         private const val TAG = "CameraViewModel"
-        private const val CONFIDENCE_THRESHOLD = 0.85f
-        private const val STABILITY_FRAMES = 10
-        private const val WORD_SEPARATOR_DELAY_MS = 3000L // 3 seconds
+        private const val CONFIDENCE_THRESHOLD = 0.85f // Same as Python
+        private const val STABILITY_FRAMES = 10 // Same as Python
     }
 
     /**
@@ -86,15 +81,12 @@ class CameraViewModel @Inject constructor(
 
     /**
      * Processes a camera frame for sign language recognition
-     * Matches the Python implementation logic:
+     * Matches Python implementation:
      * 1. Detect hand → get bounding box
      * 2. Crop hand region with padding
      * 3. Preprocess: grayscale → resize to 28x28 → normalize
      * 4. Run TFLite inference
-     * 5. Apply stability filter before adding to text
-     *
-     * @param bitmap The camera frame
-     * @param timestampMs Frame timestamp in milliseconds
+     * 5. Apply stability filter (85% confidence + 10 stable frames)
      */
     private var frameCount = 0
 
@@ -102,23 +94,20 @@ class CameraViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.Default) {
             try {
                 frameCount++
-                if (frameCount % 30 == 0) {  // Log every 30 frames (~1 second)
-                    Log.d(TAG, "Processing frame #$frameCount (${bitmap.width}x${bitmap.height}) @ ${timestampMs}ms")
-                }
 
                 // Step 1: Detect hand
                 val boundingBox = handDetector?.detectHand(bitmap, timestampMs)
 
                 if (boundingBox != null) {
-                    Log.d(TAG, "→ Hand detected! Bounding box: $boundingBox")
+                    if (frameCount % 30 == 0) {
+                        Log.d(TAG, "→ Hand detected! Frame #$frameCount, BBox: $boundingBox")
+                    }
 
                     // Step 2: Crop hand region
                     val handRegion = ImageProcessor.cropHandRegion(bitmap, boundingBox)
-                    Log.v(TAG, "  Cropped region: ${handRegion.width}x${handRegion.height}")
 
                     // Step 3: Preprocess for model (grayscale + resize to 28x28)
                     val preprocessed = ImageProcessor.preprocessForModel(handRegion)
-                    Log.v(TAG, "  Preprocessed: ${preprocessed.width}x${preprocessed.height}")
 
                     // Step 4: Run inference
                     val prediction = classifier?.classify(preprocessed)
@@ -128,30 +117,24 @@ class CameraViewModel @Inject constructor(
                     if (preprocessed != handRegion) preprocessed.recycle()
 
                     if (prediction != null) {
-                        Log.d(TAG, "  Inference result: ${prediction.predictedChar} @ ${(prediction.confidence * 100).toInt()}%")
-
-                        // Update bounding box in prediction
-                        val predictionWithBox = prediction.copy(boundingBox = boundingBox)
-
-                        // Step 5: Apply stability filter
-                        applyStabilityFilter(predictionWithBox)
-
                         // Update UI with current prediction
+                        val predictionWithBox = prediction.copy(boundingBox = boundingBox)
                         _uiState.update {
                             it.copy(currentPrediction = predictionWithBox)
                         }
-                    } else {
-                        Log.w(TAG, "  ⚠ Classifier returned null")
+
+                        // Step 5: Apply stability filter (matching Python exactly)
+                        applyStabilityFilter(prediction)
                     }
                 } else {
                     // No hand detected - clear current prediction
                     _uiState.update {
                         it.copy(currentPrediction = null)
                     }
-                    // Reset prediction list when hand is not visible
+                    // Reset prediction list when hand is not visible (matching Python)
                     if (currentPredictionList.isNotEmpty()) {
                         currentPredictionList.clear()
-                        Log.v(TAG, "  No hand - cleared prediction list")
+                        Log.v(TAG, "No hand - cleared prediction list")
                     }
                 }
             } catch (e: Exception) {
@@ -163,82 +146,49 @@ class CameraViewModel @Inject constructor(
 
     /**
      * Applies stability filter to prevent false positives
-     * Only adds letter if:
+     * Matches Python implementation exactly:
      * - Confidence > 85%
      * - Same letter predicted for 10 consecutive frames
      * - Letter is different from last confirmed letter
      */
     private fun applyStabilityFilter(prediction: PredictionResult) {
-        Log.v(TAG, "  Stability filter: ${prediction.predictedChar} @ ${(prediction.confidence * 100).toInt()}% (threshold: ${(CONFIDENCE_THRESHOLD * 100).toInt()}%)")
-
-        val currentTime = System.currentTimeMillis()
-
-        // Check if we should add a space (3 seconds of inactivity)
-        if (lastLetterConfirmedTime > 0 &&
-            currentTime - lastLetterConfirmedTime > WORD_SEPARATOR_DELAY_MS &&
-            currentWord.isNotEmpty()) {
-
-            // Add current word to translated text with space
-            _uiState.update {
-                val newText = if (it.translatedText.isEmpty()) {
-                    currentWord.toString()
-                } else {
-                    "${it.translatedText} ${currentWord}"
-                }
-                it.copy(
-                    translatedText = newText,
-                    currentWord = "" // Clear current word from UI
-                )
-            }
-            Log.i(TAG, "    📝 WORD COMPLETED: '${currentWord}' (after ${(currentTime - lastLetterConfirmedTime)/1000}s)")
-            Log.i(TAG, "    Full text: '${_uiState.value.translatedText}'")
-            currentWord.clear()
-            lastConfirmedLetter = "" // Reset to allow same letter to start new word
-        }
-
         if (prediction.confidence > CONFIDENCE_THRESHOLD) {
             // Add to prediction list
             currentPredictionList.add(prediction.predictedChar)
-            Log.v(TAG, "    Added to list. Current: ${currentPredictionList.joinToString("")} (${currentPredictionList.size}/$STABILITY_FRAMES)")
 
-            // Keep only last STABILITY_FRAMES predictions
+            // Keep only last STABILITY_FRAMES predictions (pop(0) in Python)
             if (currentPredictionList.size > STABILITY_FRAMES) {
                 currentPredictionList.removeAt(0)
             }
 
+            Log.v(TAG, "Stability: ${currentPredictionList.joinToString("")} (${currentPredictionList.size}/$STABILITY_FRAMES)")
+
             // Check if we have enough stable predictions
             if (currentPredictionList.size == STABILITY_FRAMES) {
                 val uniquePredictions = currentPredictionList.toSet()
-                Log.d(TAG, "    Full buffer! Unique predictions: $uniquePredictions")
 
-                // All predictions must be identical
+                // All predictions must be identical (len(set(...)) == 1 in Python)
                 if (uniquePredictions.size == 1) {
                     val confirmedLetter = currentPredictionList[0]
 
                     // Add letter if different from last confirmed
                     if (confirmedLetter != lastConfirmedLetter) {
-                        currentWord.append(confirmedLetter)
-                        lastConfirmedLetter = confirmedLetter
-                        lastLetterConfirmedTime = currentTime
-
-                        // Update UI with current word
+                        // Add to translated text
                         _uiState.update {
-                            it.copy(currentWord = currentWord.toString())
+                            val newText = it.translatedText + confirmedLetter
+                            Log.i(TAG, "✓✓✓ LETTER CONFIRMED: '$confirmedLetter' → Text: '$newText'")
+                            it.copy(translatedText = newText)
                         }
-
-                        Log.i(TAG, "    ✓✓✓ LETTER CONFIRMED: '$confirmedLetter' ✓✓✓")
-                        Log.i(TAG, "    Current word buffer: '${currentWord}'")
+                        lastConfirmedLetter = confirmedLetter
                     } else {
-                        Log.d(TAG, "    Same as last confirmed ('$confirmedLetter') - skipping")
+                        Log.v(TAG, "Same as last confirmed ('$confirmedLetter') - skipping")
                     }
-                } else {
-                    Log.v(TAG, "    Predictions not stable (${uniquePredictions.size} different)")
                 }
             }
         } else {
             // Low confidence - clear prediction list
             if (currentPredictionList.isNotEmpty()) {
-                Log.v(TAG, "    Low confidence - clearing ${currentPredictionList.size} predictions")
+                Log.v(TAG, "Low confidence (${(prediction.confidence * 100).toInt()}%) - clearing list")
                 currentPredictionList.clear()
             }
         }
@@ -248,42 +198,33 @@ class CameraViewModel @Inject constructor(
      * Clears the translated text
      */
     fun clearText() {
-        _uiState.update { it.copy(translatedText = "") }
-        lastConfirmedLetter = ""
-        currentPredictionList.clear()
-        currentWord.clear()
-        lastLetterConfirmedTime = 0L
-        Log.d(TAG, "Translated text and word buffer cleared")
+        viewModelScope.launch(Dispatchers.Main) {
+            Log.d(TAG, "Clear button pressed - current text: '${_uiState.value.translatedText}'")
+            _uiState.value = CameraUiState() // Reset to default state
+            lastConfirmedLetter = ""
+            currentPredictionList.clear()
+            Log.d(TAG, "Translated text cleared - new text: '${_uiState.value.translatedText}'")
+        }
     }
 
     /**
-     * Deletes the last character from translated text or current word buffer
+     * Deletes the last character from translated text
      */
     fun deleteLastLetter() {
-        // First try to delete from current word buffer
-        if (currentWord.isNotEmpty()) {
-            currentWord.deleteCharAt(currentWord.length - 1)
-            lastConfirmedLetter = if (currentWord.isNotEmpty()) {
-                currentWord.last().toString()
-            } else {
-                ""
-            }
-            Log.d(TAG, "Deleted from word buffer. Current word: '${currentWord}'")
-        } else {
-            // If word buffer is empty, delete from translated text
-            _uiState.update {
-                val newText = if (it.translatedText.isNotEmpty()) {
-                    it.translatedText.dropLast(1)
-                } else {
-                    it.translatedText
-                }
-                it.copy(translatedText = newText)
-            }
-            Log.d(TAG, "Deleted from translated text")
-        }
+        viewModelScope.launch(Dispatchers.Main) {
+            val currentText = _uiState.value.translatedText
+            Log.d(TAG, "Delete button pressed - current text: '$currentText'")
 
-        // Reset last confirmed letter to allow re-adding
-        currentPredictionList.clear()
+            if (currentText.isNotEmpty()) {
+                val newText = currentText.dropLast(1)
+                _uiState.value = _uiState.value.copy(translatedText = newText)
+                Log.d(TAG, "Deleted last letter - new text: '$newText'")
+            }
+
+            // Reset last confirmed letter to allow re-adding
+            lastConfirmedLetter = ""
+            currentPredictionList.clear()
+        }
     }
 
     /**

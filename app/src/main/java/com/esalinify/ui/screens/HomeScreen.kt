@@ -1,8 +1,6 @@
 package com.esalinify.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +17,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -72,27 +71,29 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Start Now button (only visible when option selected)
-        AnimatedVisibility(
-            visible = selectedOptionId != null,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.fillMaxWidth()
+        // Start Now button container - fixed height to prevent layout shift
+        val buttonAlpha by animateFloatAsState(
+            targetValue = if (selectedOptionId != null) 1f else 0f,
+            label = "buttonAlpha"
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .alpha(buttonAlpha),
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.Center
-            ) {
-                PrimaryButton(
-                    text = stringResource(R.string.start_now),
-                    onClick = {
-                        when (selectedOptionId) {
-                            1 -> onNavigateToCamera()
-                            2 -> onNavigateToKeyboard()
-                        }
+            PrimaryButton(
+                text = stringResource(R.string.start_now),
+                onClick = {
+                    when (selectedOptionId) {
+                        1 -> onNavigateToCamera()
+                        2 -> onNavigateToKeyboard()
                     }
-                )
-            }
+                },
+                enabled = selectedOptionId != null
+            )
         }
 
         Spacer(modifier = Modifier.height(20.dp))

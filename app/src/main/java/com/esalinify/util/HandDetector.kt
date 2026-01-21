@@ -35,9 +35,9 @@ class HandDetector(context: Context) {
                 .setBaseOptions(baseOptions)
                 .setRunningMode(RunningMode.LIVE_STREAM)
                 .setNumHands(1)
-                .setMinHandDetectionConfidence(0.5f)
-                .setMinHandPresenceConfidence(0.5f)
-                .setMinTrackingConfidence(0.5f)
+                .setMinHandDetectionConfidence(0.3f)
+                .setMinHandPresenceConfidence(0.3f)
+                .setMinTrackingConfidence(0.3f)
                 .setResultListener { result, _ ->
                     latestResult = result
                     if (result.landmarks().isNotEmpty()) {
@@ -58,6 +58,9 @@ class HandDetector(context: Context) {
         }
     }
 
+    // Track timestamp to ensure monotonically increasing values
+    private var lastTimestamp = 0L
+
     /**
      * Detects hand in the bitmap and returns bounding box with padding
      * @param bitmap The input image
@@ -71,11 +74,19 @@ class HandDetector(context: Context) {
         }
 
         try {
-            val mpImage = BitmapImageBuilder(bitmap).build()
-            handLandmarker?.detectAsync(mpImage, timestampMs)
+            // Ensure timestamp is always increasing (MediaPipe requirement)
+            val adjustedTimestamp = if (timestampMs > lastTimestamp) {
+                timestampMs
+            } else {
+                lastTimestamp + 1
+            }
+            lastTimestamp = adjustedTimestamp
 
-            // Wait a bit for result (since we're in LIVE_STREAM mode)
-            Thread.sleep(10)
+            val mpImage = BitmapImageBuilder(bitmap).build()
+            handLandmarker?.detectAsync(mpImage, adjustedTimestamp)
+
+            // Wait for result (since we're in LIVE_STREAM mode)
+            Thread.sleep(30)
 
             val result = latestResult
             if (result != null && result.landmarks().isNotEmpty()) {

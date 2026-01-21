@@ -14,21 +14,20 @@ import java.nio.channels.FileChannel
 class SignLanguageClassifier(private val context: Context) {
 
     private var interpreter: Interpreter? = null
-    private val lock = Any() // Synchronization lock for thread safety
+    private val lock = Any()
 
-    // 36 classes - 10 digits (0-9) + 26 letters (A-Z)
+    // 24 ASL letters (no J and Z as they require motion)
     private val labels = listOf(
-        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
-        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
-        'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
+        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M',
+        'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y'
     )
 
     companion object {
         private const val TAG = "SignLanguageClassifier"
-        private const val MODEL_PATH = "hand_sign_model.tflite"
-        private const val INPUT_SIZE = 64
-        private const val NUM_CHANNELS = 3
-        private const val NUM_CLASSES = 36
+        private const val MODEL_PATH = "model.tflite" // 28x28 grayscale model
+        private const val INPUT_SIZE = 28
+        private const val NUM_CHANNELS = 1 // Grayscale
+        private const val NUM_CLASSES = 24
     }
 
     init {
@@ -39,8 +38,6 @@ class SignLanguageClassifier(private val context: Context) {
 
             val options = Interpreter.Options().apply {
                 setNumThreads(4)
-                // Enable GPU acceleration if available
-                // addDelegate(GpuDelegate())
             }
             interpreter = Interpreter(modelFile, options)
 
@@ -50,16 +47,13 @@ class SignLanguageClassifier(private val context: Context) {
             Log.i(TAG, "✓ TensorFlow Lite model loaded successfully")
             Log.d(TAG, "  Input shape: ${inputTensor?.shape()?.contentToString()}")
             Log.d(TAG, "  Output shape: ${outputTensor?.shape()?.contentToString()}")
-            Log.d(TAG, "  Labels: 36 classes (0-9 + A-Z)")
+            Log.d(TAG, "  Labels: 24 ASL letters (A-Y, excluding J and Z)")
         } catch (e: Exception) {
             Log.e(TAG, "❌ CRITICAL: Error loading TensorFlow Lite model", e)
             e.printStackTrace()
         }
     }
 
-    /**
-     * Loads the TensorFlow Lite model from assets
-     */
     private fun loadModelFile(): MappedByteBuffer {
         val fileDescriptor = context.assets.openFd(MODEL_PATH)
         val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
@@ -70,8 +64,8 @@ class SignLanguageClassifier(private val context: Context) {
     }
 
     /**
-     * Classifies a preprocessed bitmap (64x64 RGB)
-     * Returns prediction result with character and confidence
+     * Classifies a preprocessed bitmap (28x28 grayscale)
+     * Matches Python: pixeldata = roi.reshape(1, 28, 28, 1) / 255.0
      */
     fun classify(bitmap: Bitmap): PredictionResult? = synchronized(lock) {
         if (interpreter == null) {
@@ -86,11 +80,11 @@ class SignLanguageClassifier(private val context: Context) {
                 return null
             }
 
-            // Convert bitmap to normalized RGB float array
-            val inputArray = ImageProcessor.bitmapToNormalizedRgbFloatArray(bitmap)
-            Log.v(TAG, "Input array size: ${inputArray.size}, first 5 values: ${inputArray.take(5)}")
+            // Convert bitmap to normalized grayscale float array (matching Python)
+            val inputArray = ImageProcessor.bitmapToNormalizedFloatArray(bitmap)
+            Log.v(TAG, "Input array size: ${inputArray.size}")
 
-            // Reshape to [1, 64, 64, 3] for model input
+            // Create input buffer with shape [1, 28, 28, 1]
             val inputBuffer = ByteBuffer.allocateDirect(4 * INPUT_SIZE * INPUT_SIZE * NUM_CHANNELS)
             inputBuffer.order(ByteOrder.nativeOrder())
 
@@ -98,13 +92,12 @@ class SignLanguageClassifier(private val context: Context) {
                 inputBuffer.putFloat(value)
             }
 
-            // CRITICAL: Rewind buffer to beginning before inference
             inputBuffer.rewind()
 
-            // Prepare output array [1, 36]
+            // Prepare output array [1, 24]
             val outputArray = Array(1) { FloatArray(NUM_CLASSES) }
 
-            // Run inference (synchronized to prevent concurrent access)
+            // Run inference
             interpreter?.run(inputBuffer, outputArray)
 
             // Get prediction
@@ -123,22 +116,13 @@ class SignLanguageClassifier(private val context: Context) {
                 predictedChar = predictedChar.toString(),
                 confidence = confidence
             )
-        } catch (e: IllegalStateException) {
-            Log.e(TAG, "❌ TFLite state error - interpreter may be busy or closed", e)
-            return null
-        } catch (e: IllegalArgumentException) {
-            Log.e(TAG, "❌ TFLite input error - invalid buffer or tensor shape", e)
-            return null
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Unexpected error during classification: ${e.javaClass.simpleName}", e)
+            Log.e(TAG, "❌ Error during classification: ${e.javaClass.simpleName}", e)
             e.printStackTrace()
             return null
         }
     }
 
-    /**
-     * Releases resources
-     */
     fun close() = synchronized(lock) {
         try {
             interpreter?.close()
