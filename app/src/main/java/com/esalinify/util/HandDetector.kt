@@ -10,71 +10,60 @@ import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
 
+/**
+ * Data class to hold hand detection results
+ */
+data class HandDetectionResult(
+    val boundingBox: Rect,
+    val landmarks: List<FloatArray>, // 21 landmarks, each [x, y, z]
+    val normalizedLandmarks: List<FloatArray> // 21 landmarks normalized [x, y]
+)
+
 class HandDetector(context: Context) {
 
     private var handLandmarker: HandLandmarker? = null
-    private var latestResult: HandLandmarkerResult? = null
 
     companion object {
         private const val TAG = "HandDetector"
-        private const val PADDING = 25 // Padding around detected hand (matching Python implementation)
+        private const val PADDING = 30
     }
 
     init {
         try {
-            Log.d(TAG, "Initializing HandLandmarker with model from assets...")
+            Log.d(TAG, "Initializing HandLandmarker with VIDEO mode...")
 
-            // Load hand landmarker model from assets
             val baseOptions = BaseOptions.builder()
                 .setModelAssetPath("hand_landmarker.task")
                 .build()
 
-            Log.d(TAG, "BaseOptions configured with model: hand_landmarker.task")
-
             val options = HandLandmarker.HandLandmarkerOptions.builder()
                 .setBaseOptions(baseOptions)
-                .setRunningMode(RunningMode.LIVE_STREAM)
+                .setRunningMode(RunningMode.VIDEO)
                 .setNumHands(1)
-                .setMinHandDetectionConfidence(0.3f)
-                .setMinHandPresenceConfidence(0.3f)
-                .setMinTrackingConfidence(0.3f)
-                .setResultListener { result, _ ->
-                    latestResult = result
-                    if (result.landmarks().isNotEmpty()) {
-                        Log.v(TAG, "✓ Hand detected with ${result.landmarks()[0].size} landmarks")
-                    }
-                }
-                .setErrorListener { error ->
-                    Log.e(TAG, "❌ Hand detection error: ${error.message}", error)
-                }
+                .setMinHandDetectionConfidence(0.5f)
+                .setMinHandPresenceConfidence(0.5f)
+                .setMinTrackingConfidence(0.5f)
                 .build()
 
-            Log.d(TAG, "Creating HandLandmarker from options...")
             handLandmarker = HandLandmarker.createFromOptions(context, options)
-            Log.i(TAG, "✓✓✓ HandLandmarker initialized successfully! ✓✓✓")
+            Log.i(TAG, "✓ HandLandmarker initialized successfully")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ CRITICAL: Failed to initialize HandLandmarker", e)
-            e.printStackTrace()
+            Log.e(TAG, "❌ Failed to initialize HandLandmarker", e)
         }
     }
 
-    // Track timestamp to ensure monotonically increasing values
     private var lastTimestamp = 0L
 
     /**
-     * Detects hand in the bitmap and returns bounding box with padding
-     * @param bitmap The input image
-     * @param timestampMs The timestamp in milliseconds (required for LIVE_STREAM mode)
-     * @return Bounding box rectangle or null if no hand detected
+     * Detects hand and returns landmarks for classification
+     * @return HandDetectionResult with bounding box and 21 landmarks, or null if no hand
      */
-    fun detectHand(bitmap: Bitmap, timestampMs: Long): Rect? {
+    fun detectHandWithLandmarks(bitmap: Bitmap, timestampMs: Long): HandDetectionResult? {
         if (handLandmarker == null) {
-            Log.e(TAG, "❌ HandLandmarker not initialized - skipping detection")
             return null
         }
 
         try {
-            // Ensure timestamp is always increasing (MediaPipe requirement)
             val adjustedTimestamp = if (timestampMs > lastTimestamp) {
                 timestampMs
             } else {
@@ -83,54 +72,59 @@ class HandDetector(context: Context) {
             lastTimestamp = adjustedTimestamp
 
             val mpImage = BitmapImageBuilder(bitmap).build()
-            handLandmarker?.detectAsync(mpImage, adjustedTimestamp)
+            val result: HandLandmarkerResult = handLandmarker!!.detectForVideo(mpImage, adjustedTimestamp)
 
-            // Wait for result (since we're in LIVE_STREAM mode)
-            Thread.sleep(30)
-
-            val result = latestResult
-            if (result != null && result.landmarks().isNotEmpty()) {
+            if (result.landmarks().isNotEmpty()) {
                 val landmarks = result.landmarks()[0]
 
-                // Calculate bounding box from landmarks
+                // Extract normalized landmarks (0-1 range)
+                val normalizedLandmarks = landmarks.map { landmark ->
+                    floatArrayOf(landmark.x(), landmark.y())
+                }
+
+                // Extract pixel coordinates for bounding box
                 var minX = Float.MAX_VALUE
                 var minY = Float.MAX_VALUE
                 var maxX = Float.MIN_VALUE
                 var maxY = Float.MIN_VALUE
 
-                landmarks.forEach { landmark ->
-                    minX = minOf(minX, landmark.x())
-                    minY = minOf(minY, landmark.y())
-                    maxX = maxOf(maxX, landmark.x())
-                    maxY = maxOf(maxY, landmark.y())
+                val pixelLandmarks = landmarks.map { landmark ->
+                    val x = landmark.x() * bitmap.width
+                    val y = landmark.y() * bitmap.height
+                    minX = minOf(minX, x)
+                    minY = minOf(minY, y)
+                    maxX = maxOf(maxX, x)
+                    maxY = maxOf(maxY, y)
+                    floatArrayOf(x, y, landmark.z())
                 }
 
-                // Convert normalized coordinates to pixel coordinates
-                val width = bitmap.width
-                val height = bitmap.height
+                val boundingBox = Rect(
+                    (minX - PADDING).toInt().coerceAtLeast(0),
+                    (minY - PADDING).toInt().coerceAtLeast(0),
+                    (maxX + PADDING).toInt().coerceAtMost(bitmap.width),
+                    (maxY + PADDING).toInt().coerceAtMost(bitmap.height)
+                )
 
-                val left = ((minX * width) - PADDING).toInt().coerceAtLeast(0)
-                val top = ((minY * height) - PADDING).toInt().coerceAtLeast(0)
-                val right = ((maxX * width) + PADDING).toInt().coerceAtMost(width)
-                val bottom = ((maxY * height) + PADDING).toInt().coerceAtMost(height)
-
-                val boundingBox = Rect(left, top, right, bottom)
-                Log.d(TAG, "✓ Bounding box calculated: $boundingBox")
-                return boundingBox
-            } else {
-                Log.v(TAG, "No hand detected in current frame")
+                return HandDetectionResult(
+                    boundingBox = boundingBox,
+                    landmarks = pixelLandmarks,
+                    normalizedLandmarks = normalizedLandmarks
+                )
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error detecting hand", e)
-            e.printStackTrace()
+            Log.e(TAG, "Error detecting hand", e)
         }
 
         return null
     }
 
     /**
-     * Releases resources
+     * Legacy method - detects hand and returns only bounding box
      */
+    fun detectHand(bitmap: Bitmap, timestampMs: Long): Rect? {
+        return detectHandWithLandmarks(bitmap, timestampMs)?.boundingBox
+    }
+
     fun close() {
         handLandmarker?.close()
         handLandmarker = null
