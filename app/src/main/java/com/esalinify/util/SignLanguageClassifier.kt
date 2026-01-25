@@ -1,7 +1,6 @@
 package com.esalinify.util
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.util.Log
 import com.esalinify.data.PredictionResult
 import org.tensorflow.lite.Interpreter
@@ -16,26 +15,44 @@ class SignLanguageClassifier(private val context: Context) {
     private var interpreter: Interpreter? = null
     private val lock = Any()
 
-    // Common greeting phrases for ASL recognition
-    // Update these labels to match your trained model's output classes
+    // Kaggle model's output classes (250 ASL phrases)
+    // Labels are ordered by index (0-249) as per the model's training
     private val labels = listOf(
-        "Hello",
-        "Good Morning",
-        "Good Afternoon",
-        "Good Evening",
-        "Goodbye",
-        "Thank You",
-        "Sorry",
-        "Please",
-        "Yes",
-        "No"
+        "tv", "after", "airplane", "all", "alligator", "animal", "another", "any", "apple", "arm",
+        "aunt", "awake", "backyard", "bad", "balloon", "bath", "because", "bed", "bedroom", "bee",
+        "before", "beside", "better", "bird", "black", "blow", "blue", "boat", "book", "boy",
+        "brother", "brown", "bug", "bye", "callonphone", "can", "car", "carrot", "cat", "cereal",
+        "chair", "cheek", "child", "chin", "chocolate", "clean", "close", "closet", "cloud", "clown",
+        "cow", "cowboy", "cry", "cut", "cute", "dad", "dance", "dirty", "dog", "doll",
+        "donkey", "down", "drawer", "drink", "drop", "dry", "dryer", "duck", "ear", "elephant",
+        "empty", "every", "eye", "face", "fall", "farm", "fast", "feet", "find", "fine",
+        "finger", "finish", "fireman", "first", "fish", "flag", "flower", "food", "for", "frenchfries",
+        "frog", "garbage", "gift", "giraffe", "girl", "give", "glasswindow", "go", "goose", "grandma",
+        "grandpa", "grass", "green", "gum", "hair", "happy", "hat", "hate", "have", "haveto",
+        "head", "hear", "helicopter", "hello", "hen", "hesheit", "hide", "high", "home", "horse",
+        "hot", "hungry", "icecream", "if", "into", "jacket", "jeans", "jump", "kiss", "kitty",
+        "lamp", "later", "like", "lion", "lips", "listen", "look", "loud", "mad", "make",
+        "man", "many", "milk", "minemy", "mitten", "mom", "moon", "morning", "mouse", "mouth",
+        "nap", "napkin", "night", "no", "noisy", "nose", "not", "now", "nuts", "old",
+        "on", "open", "orange", "outside", "owie", "owl", "pajamas", "pen", "pencil", "penny",
+        "person", "pig", "pizza", "please", "police", "pool", "potty", "pretend", "pretty", "puppy",
+        "puzzle", "quiet", "radio", "rain", "read", "red", "refrigerator", "ride", "room", "sad",
+        "same", "say", "scissors", "see", "shhh", "shirt", "shoe", "shower", "sick", "sleep",
+        "sleepy", "smile", "snack", "snow", "stairs", "stay", "sticky", "store", "story", "stuck",
+        "sun", "table", "talk", "taste", "thankyou", "that", "there", "think", "thirsty", "tiger",
+        "time", "tomorrow", "tongue", "tooth", "toothbrush", "touch", "toy", "tree", "uncle", "underwear",
+        "up", "vacuum", "wait", "wake", "water", "wet", "weus", "where", "white", "who",
+        "why", "will", "wolf", "yellow", "yes", "yesterday", "yourself", "yucky", "zebra", "zipper"
     )
 
     companion object {
         private const val TAG = "SignLanguageClassifier"
-        private const val MODEL_PATH = "model.tflite" // Replace with your phrase model
-        private const val INPUT_SIZE = 28 // Adjust based on your model
-        private const val NUM_CHANNELS = 1 // Grayscale (change to 3 for RGB)
+        private const val MODEL_PATH = "phrase_model.tflite" // Kaggle phrase model
+
+        // Kaggle model expects MediaPipe Holistic: 543 landmarks × 3 coordinates
+        private const val NUM_LANDMARKS = 543 // 468 face + 33 pose + 21 left hand + 21 right hand
+        private const val NUM_COORDINATES = 3 // x, y, z
+        private const val INPUT_SIZE = NUM_LANDMARKS * NUM_COORDINATES // 1629 features
     }
 
     // Dynamically set based on labels
@@ -75,12 +92,18 @@ class SignLanguageClassifier(private val context: Context) {
     }
 
     /**
-     * Classifies a preprocessed bitmap
-     * Returns the recognized phrase and confidence
+     * Classifies holistic landmarks (face + pose + hands) to recognize ASL phrase
+     * @param landmarks List of 543 landmark coordinates [[x1,y1,z1], [x2,y2,z2], ...]
+     * @return PredictionResult with phrase and confidence
      */
-    fun classify(bitmap: Bitmap): PredictionResult? = synchronized(lock) {
+    fun classify(landmarks: List<FloatArray>): PredictionResult? = synchronized(lock) {
         if (interpreter == null) {
             Log.e(TAG, "❌ Interpreter not initialized - cannot classify")
+            return null
+        }
+
+        if (landmarks.size != NUM_LANDMARKS) {
+            Log.e(TAG, "Invalid landmarks size: ${landmarks.size}, expected $NUM_LANDMARKS")
             return null
         }
 
@@ -89,22 +112,23 @@ class SignLanguageClassifier(private val context: Context) {
             val outputTensor = interpreter?.getOutputTensor(0)
             val modelOutputSize = outputTensor?.shape()?.get(1) ?: numClasses
 
-            // Preprocess bitmap
-            val processedBitmap = if (bitmap.width != INPUT_SIZE || bitmap.height != INPUT_SIZE) {
-                Bitmap.createScaledBitmap(bitmap, INPUT_SIZE, INPUT_SIZE, true)
-            } else {
-                bitmap
-            }
-
-            // Convert bitmap to normalized float array
-            val inputArray = ImageProcessor.bitmapToNormalizedFloatArray(processedBitmap)
-
-            // Create input buffer
-            val inputBuffer = ByteBuffer.allocateDirect(4 * INPUT_SIZE * INPUT_SIZE * NUM_CHANNELS)
+            // Create input buffer - Kaggle model expects raw normalized landmarks [543, 3]
+            // Format: [[x1,y1,z1], [x2,y2,z2], ..., [x543,y543,z543]]
+            val inputBuffer = ByteBuffer.allocateDirect(4 * INPUT_SIZE)
             inputBuffer.order(ByteOrder.nativeOrder())
 
-            for (value in inputArray) {
-                inputBuffer.putFloat(value)
+            // Flatten landmarks into input buffer
+            for (landmark in landmarks) {
+                if (landmark.size >= NUM_COORDINATES) {
+                    inputBuffer.putFloat(landmark[0]) // x
+                    inputBuffer.putFloat(landmark[1]) // y
+                    inputBuffer.putFloat(landmark[2]) // z
+                } else {
+                    // Fallback for malformed landmarks
+                    inputBuffer.putFloat(0f)
+                    inputBuffer.putFloat(0f)
+                    inputBuffer.putFloat(0f)
+                }
             }
             inputBuffer.rewind()
 
@@ -135,10 +159,6 @@ class SignLanguageClassifier(private val context: Context) {
                     "$label:${(predictions[idx] * 100).toInt()}%"
                 }
             Log.d(TAG, "Prediction: $predictedPhrase (${(confidence * 100).toInt()}%) | Top3: $top3")
-
-            if (processedBitmap != bitmap) {
-                processedBitmap.recycle()
-            }
 
             return PredictionResult(
                 predictedChar = predictedPhrase,

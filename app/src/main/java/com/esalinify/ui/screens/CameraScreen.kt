@@ -11,10 +11,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.esalinify.R
+import com.esalinify.data.RecognitionMode
 import com.esalinify.ui.components.BackButton
 import com.esalinify.ui.components.CameraPreview
 import com.esalinify.ui.screens.viewmodel.CameraViewModel
@@ -73,7 +80,8 @@ fun CameraScreen(
                         viewModel.processFrame(bitmap, timestamp)
                     },
                     onClearText = { viewModel.clearText() },
-                    onDeleteLast = { viewModel.deleteLastLetter() }
+                    onDeleteLast = { viewModel.deleteLastLetter() },
+                    viewModel = viewModel
                 )
             }
 
@@ -99,7 +107,8 @@ private fun CameraContent(
     uiState: com.esalinify.data.CameraUiState,
     onFrameAnalyzed: (android.graphics.Bitmap, Long) -> Unit,
     onClearText: () -> Unit,
-    onDeleteLast: () -> Unit
+    onDeleteLast: () -> Unit,
+    viewModel: CameraViewModel
 ) {
     Column(
         modifier = Modifier.fillMaxSize()
@@ -113,31 +122,105 @@ private fun CameraContent(
                 .background(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.1f))
         ) {
             CameraPreview(
+                cameraFacing = uiState.cameraFacing,
                 onFrameAnalyzed = onFrameAnalyzed
             )
 
-            // Prediction overlay - show only the detected letter
+            // Prediction overlay - show detected letter/phrase with mode indicator
             uiState.currentPrediction?.let { prediction ->
-                Box(
+                Column(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .padding(16.dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.9f),
-                            shape = RoundedCornerShape(20.dp)
-                        )
-                        .padding(horizontal = 24.dp, vertical = 12.dp)
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        text = prediction.predictedChar,
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = MaterialTheme.colorScheme.onSecondary
-                    )
+                    // Mode indicator chip
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = when (uiState.recognitionMode) {
+                                RecognitionMode.LETTER -> "Letter"
+                                RecognitionMode.PHRASE -> "Phrase"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Prediction text
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.9f),
+                                shape = RoundedCornerShape(20.dp)
+                            )
+                            .padding(horizontal = 24.dp, vertical = 12.dp)
+                    ) {
+                        Text(
+                            text = prediction.predictedChar,
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = MaterialTheme.colorScheme.onSecondary
+                        )
+                    }
                 }
+            }
+
+            // Camera flip button in top-right corner
+            IconButton(
+                onClick = { viewModel.toggleCameraFacing() },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+                    .size(48.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                        shape = CircleShape
+                    )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Cameraswitch,
+                    contentDescription = "Switch Camera",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(28.dp)
+                )
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Mode toggle button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Button(
+                onClick = { viewModel.toggleRecognitionMode() },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f)
+                ),
+                shape = RoundedCornerShape(25.dp)
+            ) {
+                val modeText = when (uiState.recognitionMode) {
+                    RecognitionMode.LETTER -> "Mode: Letters (A-Z)"
+                    RecognitionMode.PHRASE -> "Mode: Phrases"
+                }
+                Text(
+                    text = modeText,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSecondary
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         // Translated text section
         Text(

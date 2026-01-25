@@ -25,6 +25,7 @@ private const val TAG = "CameraPreview"
 @Composable
 fun CameraPreview(
     modifier: Modifier = Modifier,
+    cameraFacing: com.esalinify.data.CameraFacing = com.esalinify.data.CameraFacing.BACK,
     onFrameAnalyzed: (Bitmap, Long) -> Unit
 ) {
     val context = LocalContext.current
@@ -33,8 +34,17 @@ fun CameraPreview(
     val previewView = remember { PreviewView(context) }
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
 
+    // Executor lifecycle - only dispose when component unmounts
     DisposableEffect(Unit) {
-        Log.i(TAG, "Setting up CameraX...")
+        onDispose {
+            Log.d(TAG, "Component unmounting - shutting down camera executor")
+            cameraExecutor.shutdown()
+        }
+    }
+
+    // Camera binding - rebind when cameraFacing changes
+    DisposableEffect(cameraFacing) {
+        Log.i(TAG, "Setting up CameraX with facing: $cameraFacing...")
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
 
         cameraProviderFuture.addListener({
@@ -61,8 +71,12 @@ fun CameraPreview(
                     }
                 Log.d(TAG, "ImageAnalysis use case created")
 
-                // Select back camera
-                val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+                // Select camera based on facing parameter
+                val cameraSelector = when (cameraFacing) {
+                    com.esalinify.data.CameraFacing.BACK -> CameraSelector.DEFAULT_BACK_CAMERA
+                    com.esalinify.data.CameraFacing.FRONT -> CameraSelector.DEFAULT_FRONT_CAMERA
+                }
+                Log.d(TAG, "Using camera: $cameraFacing")
 
                 // Unbind all use cases before rebinding
                 cameraProvider.unbindAll()
@@ -83,8 +97,8 @@ fun CameraPreview(
         }, ContextCompat.getMainExecutor(context))
 
         onDispose {
-            Log.d(TAG, "Shutting down camera executor")
-            cameraExecutor.shutdown()
+            Log.d(TAG, "Camera facing changed - unbinding camera (executor stays alive)")
+            // Don't shutdown executor here - just let camera rebind
         }
     }
 
