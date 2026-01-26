@@ -15,7 +15,7 @@
     <string name="option_camera_title">Communicate through camera</string>
     <string name="option_camera_desc">Uses camera to translate hand signs</string>
     <string name="option_keyboard_title">Communicate through keyboard typing</string>
-    <string name="option_keyboard_desc">(Best for deaf user)</string>
+    <string name="option_keyboard_desc">Type messages using text</string>
     <string name="start_now">Start Now</string>
 
     <!-- Keyboard -->

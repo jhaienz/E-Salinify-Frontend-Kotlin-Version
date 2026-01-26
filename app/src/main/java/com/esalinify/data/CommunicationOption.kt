@@ -21,7 +21,7 @@ object CommunicationData {
         CommunicationOption(
             id = 2,
             title = "Communicate through keyboard typing",
-            description = "(Best for deaf user)",
+            description = "Type messages using text",
             imageRes = R.drawable.ic_keyboard_option
         )
     )
