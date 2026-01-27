@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -48,6 +49,7 @@ import com.google.accompanist.permissions.shouldShowRationale
 @Composable
 fun CameraScreen(
     onNavigateBack: () -> Unit,
+    onNavigateToKeyboard: () -> Unit,
     viewModel: CameraViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -81,6 +83,7 @@ fun CameraScreen(
                     },
                     onClearText = { viewModel.clearText() },
                     onDeleteLast = { viewModel.deleteLastLetter() },
+                    onNavigateToKeyboard = onNavigateToKeyboard,
                     viewModel = viewModel
                 )
             }
@@ -108,6 +111,7 @@ private fun CameraContent(
     onFrameAnalyzed: (android.graphics.Bitmap, Long) -> Unit,
     onClearText: () -> Unit,
     onDeleteLast: () -> Unit,
+    onNavigateToKeyboard: () -> Unit,
     viewModel: CameraViewModel
 ) {
     Column(
@@ -155,7 +159,7 @@ private fun CameraContent(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Prediction text
+                    // Prediction text with confidence
                     Box(
                         modifier = Modifier
                             .background(
@@ -164,33 +168,68 @@ private fun CameraContent(
                             )
                             .padding(horizontal = 24.dp, vertical = 12.dp)
                     ) {
-                        Text(
-                            text = prediction.predictedChar,
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = MaterialTheme.colorScheme.onSecondary
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = prediction.predictedChar,
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = MaterialTheme.colorScheme.onSecondary
+                            )
+
+                            // Show confidence percentage
+                            Text(
+                                text = "${(prediction.confidence * 100).toInt()}%",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSecondary.copy(alpha = 0.8f)
+                            )
+                        }
                     }
                 }
             }
 
-            // Camera flip button in top-right corner
-            IconButton(
-                onClick = { viewModel.toggleCameraFacing() },
+            // Top-right buttons
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(16.dp)
-                    .size(48.dp)
-                    .background(
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                        shape = CircleShape
-                    )
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Cameraswitch,
-                    contentDescription = "Switch Camera",
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(28.dp)
-                )
+                // Switch to Keyboard button
+                IconButton(
+                    onClick = onNavigateToKeyboard,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f),
+                            shape = CircleShape
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Keyboard,
+                        contentDescription = "Switch to Keyboard",
+                        tint = MaterialTheme.colorScheme.onSecondary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                // Camera flip button
+                IconButton(
+                    onClick = { viewModel.toggleCameraFacing() },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                            shape = CircleShape
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Cameraswitch,
+                        contentDescription = "Switch Camera",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
             }
         }
 

@@ -59,6 +59,11 @@ fun NavGraph(
             KeyboardScreen(
                 onNavigateBack = {
                     navController.popBackStack()
+                },
+                onNavigateToCamera = {
+                    navController.navigate(Screen.Camera.route) {
+                        popUpTo(Screen.Home.route)
+                    }
                 }
             )
         }
@@ -67,6 +72,11 @@ fun NavGraph(
             CameraScreen(
                 onNavigateBack = {
                     navController.popBackStack()
+                },
+                onNavigateToKeyboard = {
+                    navController.navigate(Screen.Keyboard.route) {
+                        popUpTo(Screen.Home.route)
+                    }
                 }
             )
         }

@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,6 +57,7 @@ import com.esalinify.ui.screens.viewmodel.KeyboardViewModel
 @Composable
 fun KeyboardScreen(
     onNavigateBack: () -> Unit,
+    onNavigateToCamera: () -> Unit,
     viewModel: KeyboardViewModel = hiltViewModel()
 ) {
     val inputText by viewModel.inputText.collectAsState()
@@ -86,7 +88,7 @@ fun KeyboardScreen(
             .background(Color.White)
             .imePadding()
     ) {
-        // Header with back button and info icon
+        // Header with back button, camera switch, and info icon
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -102,6 +104,19 @@ fun KeyboardScreen(
                     .clickable { onNavigateBack() },
                 tint = Color.Black
             )
+
+            // Camera switch button (centered)
+            IconButton(
+                onClick = onNavigateToCamera,
+                modifier = Modifier.align(Alignment.Center)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Videocam,
+                    contentDescription = "Switch to Camera",
+                    modifier = Modifier.size(28.dp),
+                    tint = MaterialTheme.colorScheme.secondary
+                )
+            }
 
             // Info icon with tooltip
             Box(
