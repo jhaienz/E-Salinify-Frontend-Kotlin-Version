@@ -9,9 +9,7 @@ import com.esalinify.data.CameraUiState
 import com.esalinify.data.PredictionResult
 import com.esalinify.data.RecognitionMode
 import com.esalinify.util.HandDetector
-import com.esalinify.util.HolisticDetector
 import com.esalinify.util.LandmarkClassifier
-import com.esalinify.util.SignLanguageClassifier
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -31,12 +29,9 @@ class CameraViewModel @Inject constructor(
     val uiState: StateFlow<CameraUiState> = _uiState.asStateFlow()
 
     private var landmarkClassifier: LandmarkClassifier? = null
-    private var phraseClassifier: SignLanguageClassifier? = null
     private var handDetector: HandDetector? = null
-    private var holisticDetector: HolisticDetector? = null
 
     // Stability filter for letter recognition
-    private val recentPredictions = mutableListOf<String>()
     private var lastConfirmedLetter = ""
     private var lastLetterTime = 0L
 
@@ -44,14 +39,26 @@ class CameraViewModel @Inject constructor(
     private var currentStableLetter = ""
     private var stableLetterStartTime = 0L
 
+    // Phrase mode: letter sequence tracking
+    private val letterSequence = mutableListOf<String>()
+    private var lastSequenceUpdateTime = 0L
+
     companion object {
         private const val TAG = "CameraViewModel"
         private const val CONFIDENCE_THRESHOLD = 0.55f // Lowered for faster detection
-        private const val PHRASE_CONFIDENCE_THRESHOLD = 0.5f // Lower threshold for phrases
         private const val LETTER_STABILITY_TIME_MS = 500L // 0.5 seconds of stable detection required
-        private const val STABILITY_FRAMES = 8 // For phrase mode
         private const val SAME_LETTER_COOLDOWN_MS = 800L // Cooldown before same letter can be added again
         private const val WORD_SEPARATOR_DELAY_MS = 3000L // 3 seconds no detection = add space
+        private const val PHRASE_SEQUENCE_TIMEOUT_MS = 2000L // 2 seconds to complete phrase sequence
+
+        // Letter-to-phrase mappings (5 simple everyday phrases)
+        private val PHRASE_SEQUENCES = mapOf(
+            listOf("H", "I") to "Hi",
+            listOf("W", "A") to "Hello",
+            listOf("T", "Y") to "Thanks",
+            listOf("Y", "S") to "Yes",
+            listOf("N", "O") to "No"
+        )
     }
 
     fun initializeModels() {
@@ -62,17 +69,11 @@ class CameraViewModel @Inject constructor(
                 Log.i(TAG, "======================================")
                 _uiState.update { it.copy(isProcessing = true) }
 
-                Log.d(TAG, "Step 1/4: Creating HandDetector (for letters)...")
+                Log.d(TAG, "Step 1/2: Creating HandDetector...")
                 handDetector = HandDetector(context)
 
-                Log.d(TAG, "Step 2/4: Creating HolisticDetector (for phrases)...")
-                holisticDetector = HolisticDetector(context)
-
-                Log.d(TAG, "Step 3/4: Creating LandmarkClassifier (A-Z)...")
+                Log.d(TAG, "Step 2/2: Creating LandmarkClassifier (A-Z)...")
                 landmarkClassifier = LandmarkClassifier(context)
-
-                Log.d(TAG, "Step 4/4: Creating PhraseClassifier (Phrases)...")
-                phraseClassifier = SignLanguageClassifier(context)
 
                 _uiState.update {
                     it.copy(
@@ -115,7 +116,8 @@ class CameraViewModel @Inject constructor(
             lastHandDetectedTime = 0L
             currentStableLetter = ""
             stableLetterStartTime = 0L
-            recentPredictions.clear()
+            letterSequence.clear()
+            lastSequenceUpdateTime = 0L
         }
     }
 
@@ -142,68 +144,54 @@ class CameraViewModel @Inject constructor(
                 frameCount++
                 val currentTime = System.currentTimeMillis()
 
-                // Use different detector based on mode
-                when (_uiState.value.recognitionMode) {
-                    RecognitionMode.LETTER -> {
-                        // Letter mode: Use HandDetector (21 landmarks)
-                        val handResult = handDetector?.detectHandWithLandmarks(bitmap, timestampMs)
+                // Use HandDetector for both letter and phrase modes
+                val handResult = handDetector?.detectHandWithLandmarks(bitmap, timestampMs)
 
-                        if (handResult != null) {
-                            lastHandDetectedTime = currentTime
+                if (handResult != null) {
+                    lastHandDetectedTime = currentTime
 
-                            // Classify using letter classifier
-                            val prediction = landmarkClassifier?.classify(handResult.normalizedLandmarks)
+                    // Classify using letter classifier
+                    val prediction = landmarkClassifier?.classify(handResult.normalizedLandmarks)
 
-                            if (prediction != null) {
-                                _uiState.update {
-                                    it.copy(
-                                        currentPrediction = prediction.copy(boundingBox = handResult.boundingBox)
-                                    )
-                                }
+                    if (prediction != null) {
+                        _uiState.update {
+                            it.copy(
+                                currentPrediction = prediction.copy(boundingBox = handResult.boundingBox)
+                            )
+                        }
+
+                        // Handle prediction based on mode
+                        when (_uiState.value.recognitionMode) {
+                            RecognitionMode.LETTER -> {
                                 applyLetterStabilityFilter(prediction, currentTime)
                             }
-                        } else {
-                            // No hand detected
-                            _uiState.update { it.copy(currentPrediction = null) }
+                            RecognitionMode.PHRASE -> {
+                                applyPhraseSequenceDetection(prediction, currentTime)
+                            }
+                        }
+                    }
+                } else {
+                    // No hand detected
+                    _uiState.update { it.copy(currentPrediction = null) }
+
+                    when (_uiState.value.recognitionMode) {
+                        RecognitionMode.LETTER -> {
                             if (currentStableLetter.isNotEmpty()) {
                                 val lostAfter = currentTime - stableLetterStartTime
                                 Log.w(TAG, "⚠ Lost stable tracking for '$currentStableLetter' after ${lostAfter}ms (no hand detected)")
                                 currentStableLetter = ""
                                 stableLetterStartTime = 0L
                             }
-                            recentPredictions.clear()
                         }
-                    }
-
-                    RecognitionMode.PHRASE -> {
-                        // Phrase mode: Use HolisticDetector (543 landmarks)
-                        val holisticResult = holisticDetector?.detectHolistic(bitmap, timestampMs)
-
-                        if (holisticResult != null) {
-                            lastHandDetectedTime = currentTime
-                            Log.d(TAG, "Holistic detection successful - landmarks: ${holisticResult.allLandmarks.size}")
-
-                            // Classify using phrase classifier
-                            val prediction = phraseClassifier?.classify(holisticResult.allLandmarks)
-
-                            if (prediction != null) {
-                                Log.d(TAG, "Phrase prediction: ${prediction.predictedChar} (${(prediction.confidence * 100).toInt()}%)")
-                                _uiState.update {
-                                    it.copy(
-                                        currentPrediction = prediction.copy(boundingBox = holisticResult.boundingBox)
-                                    )
-                                }
-                                applyPhraseDetection(prediction, currentTime)
-                            } else {
-                                Log.d(TAG, "No prediction from phrase classifier")
+                        RecognitionMode.PHRASE -> {
+                            // Check if sequence timed out
+                            if (letterSequence.isNotEmpty() &&
+                                currentTime - lastSequenceUpdateTime > PHRASE_SEQUENCE_TIMEOUT_MS
+                            ) {
+                                Log.d(TAG, "Phrase sequence timed out - clearing: ${letterSequence.joinToString("")}")
+                                letterSequence.clear()
+                                lastSequenceUpdateTime = 0L
                             }
-                        } else {
-                            // No landmarks detected
-                            if (frameCount % 30 == 0) {
-                                Log.d(TAG, "No holistic landmarks detected - ensure face, body, and hands are visible")
-                            }
-                            _uiState.update { it.copy(currentPrediction = null) }
-                            recentPredictions.clear()
                         }
                     }
                 }
@@ -281,36 +269,89 @@ class CameraViewModel @Inject constructor(
         }
     }
 
-    private fun applyPhraseDetection(prediction: PredictionResult, currentTime: Long) {
-        // Apply stability filter for phrases (using lower threshold)
-        if (prediction.confidence > PHRASE_CONFIDENCE_THRESHOLD) {
-            recentPredictions.add(prediction.predictedChar)
+    private fun applyPhraseSequenceDetection(prediction: PredictionResult, currentTime: Long) {
+        // Apply time-based stability filter for phrase mode
+        if (prediction.confidence > CONFIDENCE_THRESHOLD) {
+            val predictedLetter = prediction.predictedChar
 
-            if (recentPredictions.size > STABILITY_FRAMES) {
-                recentPredictions.removeAt(0)
-            }
+            // Check if this is a new letter or same as current stable letter
+            if (predictedLetter != currentStableLetter) {
+                // New letter detected, start tracking it
+                currentStableLetter = predictedLetter
+                stableLetterStartTime = currentTime
+                Log.i(TAG, "▶ [PHRASE MODE] Started tracking letter: '$predictedLetter' (confidence: ${(prediction.confidence * 100).toInt()}%)")
+            } else {
+                // Same letter, check if it's been stable for required time
+                val stableTime = currentTime - stableLetterStartTime
 
-            // Check for stable prediction
-            if (recentPredictions.size == STABILITY_FRAMES &&
-                recentPredictions.toSet().size == 1
-            ) {
-                val confirmedPhrase = recentPredictions[0]
-                val timeSinceLastPhrase = currentTime - lastLetterTime
-                val isDifferent = confirmedPhrase != lastConfirmedLetter
-                val cooldownPassed = timeSinceLastPhrase > SAME_LETTER_COOLDOWN_MS
+                if (stableTime >= LETTER_STABILITY_TIME_MS) {
+                    // Letter has been stable for required time
+                    val timeSinceLastLetter = currentTime - lastLetterTime
+                    val isDifferent = currentStableLetter != lastConfirmedLetter
+                    val cooldownPassed = timeSinceLastLetter > SAME_LETTER_COOLDOWN_MS
 
-                if (isDifferent || cooldownPassed) {
-                    addPhraseToText(confirmedPhrase)
-                    lastConfirmedLetter = confirmedPhrase
-                    lastLetterTime = currentTime
-                    Log.i(TAG, "✓✓✓ PHRASE CONFIRMED: '$confirmedPhrase' (confidence: ${(prediction.confidence * 100).toInt()}%)")
+                    if (isDifferent || cooldownPassed) {
+                        // Add letter to sequence
+                        letterSequence.add(currentStableLetter)
+                        lastSequenceUpdateTime = currentTime
+                        lastConfirmedLetter = currentStableLetter
+                        lastLetterTime = currentTime
+
+                        Log.i(TAG, "✓ Letter '$currentStableLetter' added to sequence: ${letterSequence.joinToString("")}")
+
+                        // Check if current sequence matches any phrase
+                        checkPhraseSequence(currentTime)
+
+                        // Reset stable tracking to avoid duplicate
+                        currentStableLetter = ""
+                        stableLetterStartTime = 0L
+                    }
+                } else {
+                    // Still tracking, log progress periodically
+                    if (stableTime < LETTER_STABILITY_TIME_MS) {
+                        val currentQuarter = (stableTime / 250).toInt()
+                        val previousQuarter = ((stableTime - 50) / 250).toInt()
+
+                        if (currentQuarter > previousQuarter) {
+                            Log.i(TAG, "⏱ [PHRASE MODE] Letter '$predictedLetter' stable for ${stableTime}ms / ${LETTER_STABILITY_TIME_MS}ms")
+                        }
+                    }
                 }
             }
         } else {
-            if (recentPredictions.isNotEmpty()) {
-                Log.d(TAG, "Phrase confidence too low: ${(prediction.confidence * 100).toInt()}%")
+            // Low confidence, reset tracking
+            if (currentStableLetter.isNotEmpty()) {
+                val lostAfter = currentTime - stableLetterStartTime
+                Log.w(TAG, "⚠ [PHRASE MODE] Lost stable tracking for '$currentStableLetter' after ${lostAfter}ms (confidence too low: ${(prediction.confidence * 100).toInt()}%)")
             }
-            recentPredictions.clear()
+            currentStableLetter = ""
+            stableLetterStartTime = 0L
+        }
+    }
+
+    private fun checkPhraseSequence(currentTime: Long) {
+        // Check if current sequence matches any phrase mapping
+        PHRASE_SEQUENCES.forEach { (sequence, phrase) ->
+            if (letterSequence.size >= sequence.size) {
+                val lastNLetters = letterSequence.takeLast(sequence.size)
+                if (lastNLetters == sequence) {
+                    // Match found!
+                    Log.i(TAG, "✓✓✓ PHRASE MATCHED: ${sequence.joinToString("")} → '$phrase'")
+                    addPhraseToText(phrase)
+                    letterSequence.clear()
+                    lastSequenceUpdateTime = currentTime
+                    return
+                }
+            }
+        }
+
+        // Check for timeout
+        if (currentTime - lastSequenceUpdateTime > PHRASE_SEQUENCE_TIMEOUT_MS) {
+            if (letterSequence.isNotEmpty()) {
+                Log.d(TAG, "Phrase sequence timed out - clearing: ${letterSequence.joinToString("")}")
+                letterSequence.clear()
+                lastSequenceUpdateTime = 0L
+            }
         }
     }
 
@@ -358,7 +399,8 @@ class CameraViewModel @Inject constructor(
             lastHandDetectedTime = 0L
             currentStableLetter = ""
             stableLetterStartTime = 0L
-            recentPredictions.clear()
+            letterSequence.clear()
+            lastSequenceUpdateTime = 0L
         }
     }
 
@@ -376,16 +418,15 @@ class CameraViewModel @Inject constructor(
             lastConfirmedLetter = ""
             currentStableLetter = ""
             stableLetterStartTime = 0L
-            recentPredictions.clear()
+            letterSequence.clear()
+            lastSequenceUpdateTime = 0L
         }
     }
 
     override fun onCleared() {
         super.onCleared()
         landmarkClassifier?.close()
-        phraseClassifier?.close()
         handDetector?.close()
-        holisticDetector?.close()
         Log.d(TAG, "ViewModel cleared")
     }
 }
